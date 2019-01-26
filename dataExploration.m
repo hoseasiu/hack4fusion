@@ -27,7 +27,7 @@ while t < max(data.time_until_disrupt)
     data.disrupt_category = data.disrupt_category + (data.time_until_disrupt < t);
 end
 
-%% data cleaning
+%% data cleaning - constrain data values to valid ranges
 
 valid_ranges = {...
     {'Greenwald_fraction',[0,1.5]},...
@@ -61,28 +61,76 @@ for i = 1:length(valid_ranges)
     eval(['data.' varName '(data.' varName '>' num2str(varRange(2)) ') = ' num2str(varRange(2)) ';']);
 end
 
-%%
-dataWithoutIntentionalDisruptions = data(data.intentional_disruption ~= 1,:);
-
-dataWithDisruptions = data(data.disrupted,:);
-
-%%
-
+%% renaming the shots for my sanity
 shotIDs = unique(data.shot);
 
-for i = 1:10
-    shotData = data(data.shot == shotIDs(i),:);
-    figure;
-    plot(shotData.time, shotData.ssep);
-    if shotData.disrupted(1) == 1
-        title(['shot ' num2str(shotIDs(i)) ' disrupted']);
-    else
-        title(['shot ' num2str(shotIDs(i)) ' not disrupted']);
-    end
+for i = 1:length(shotIDs)
+    data.shot(data.shot==shotIDs(i)) = i;
 end
-    
-%% grab a smaller dataset
-smallData = data(data.shot < shotIDs(100),:);
 
-% test each shot separately
+
+%%
+clearvars; close all; clc;
+load('cleanedData');
+
+data.disrupt_category = [];         % remove this for now
+
+%% select portions of the data
+% dataWithoutIntentionalDisruptions = data(data.intentional_disruption ~= 1,:);
+% dataWithDisruptions = data(data.disrupted,:);
+
+disp('---');
+
+shotIDs = unique(data.shot);
+smallData = data(data.shot < shotIDs(1000),:);       % grab a smaller dataset (the first n shots)
+
+disp(['size of reduced dataset: ' num2str(size(smallData,1))]);
+
+% split into train and test by shot (with small dataset for now)
+smallDataShotIDs = unique(smallData.shot);
+trainTestSplitIndex = round(length(smallDataShotIDs)*0.9);
+trainTestSplit = smallDataShotIDs(trainTestSplitIndex);
+
+smallDataTrain = smallData(smallData.shot<trainTestSplit,:);
+smallDataTest = smallData(smallData.shot>=trainTestSplit,:);
+
+disp(['train: ' num2str(size(smallDataTrain,1))]);
+disp(['test: ' num2str(size(smallDataTest,1))]);
+
+%%%%%%%%%%%% classify into disrupted vs not disrupted
+shot = smallData.shot;
+smallData.shot = [];
+disrupted = smallData.disrupted;
+smallData.disrupted = [];
+
+% removing a few things for convenience for now - will add them back in
+% later
+time_until_disrupt = smallData.time_until_disrupt;
+smallData.time_until_disrupt = [];
+smallData.intentional_disruption = [];
+
+dataArray = table2array(smallData);             % turn into table
+dataArray(isnan(dataArray)) = 0;                % turn NaNs into zeros
+
+tic;
+% [trainedClassifier, validationAccuracy] = trainFineTreeClassifier(smallDataTrain);
+[trainedClassifier, validationAccuracy] = trainKNNClassifier(smallDataTrain);       % this takes a while, but gets >90% accuracy
+disp(['validation accuracy: ' num2str(validationAccuracy)]);
+
+yFitClassification = trainedClassifier.predictFcn(smallDataTest);
+
+testAcc = sum(yFitClassification==smallDataTest.disrupted)/length(yFitClassification);
+disp(['test accuracy: ' num2str(testAcc)]);
+toc;
+% learningArray = [ones(size(shot)),shot,disrupted,dataArray];
+% 
+% disp('cross validating');
+% [ results, allPredictions, allLabels ] = crossValidate( learningArray)
+
+
+
+%% regression for time till disruption
+smallDataWithDisruptions = smallData(disrupted,:);
+smallDataWithDisruptions.time_until_disrupt = time_until_disrupt(disrupted);
+
 
