@@ -1,24 +1,22 @@
 clearvars; close all; clc;
 
 data = readtable('CMod_HackForFusion_v2.csv');
-% load('CMod_HackForFusion_v2');
-% 
 data{:,width(data)+1} = ~isnan(data.time_until_disrupt);
 data.Properties.VariableNames{width(data)} = 'disrupted';
-%%
-
-% clearvars; close all; clc;
-% 
-% load('CMod_HackForFusion_v2_with_disrupted');
-
 
 %%
+classification = 0;         % classification (1) or regression (0)
 
-figure; 
-histogram(data.time_until_disrupt);
-xlabel('time until disruption (s)');
-ylabel('counts');
-grid on;
+if ~classification
+    data(~data.disrupted,:) = [];
+end
+%%
+
+% figure; 
+% histogram(data.time_until_disrupt);
+% xlabel('time until disruption (s)');
+% ylabel('counts');
+% grid on;
 
 %% data cleaning - constrain data values to valid ranges
 
@@ -62,13 +60,6 @@ for i = 1:length(shotIDs)
     data.shot(data.shot==shotIDs(i)) = i;
 end
 
-% %%
-% save('cleanedData','data');
-% 
-% %%
-% clearvars; close all; clc;
-% load('cleanedData');
-
 %% separate into features and labels and other information
 disrupted = data.disrupted;
 time = data.time;
@@ -84,11 +75,12 @@ featureNames = data.Properties.VariableNames;
 dataArr = table2array(data);
 
 %%
-
-altered_time_until_disrupt = time_until_disrupt;
-altered_time_until_disrupt(isnan(altered_time_until_disrupt)) = 100;            % change all the non-disrupts to 100 seconds
-
-[X,Y] = prepareDataTrain([shot altered_time_until_disrupt dataArr]);
+if classification
+    
+    [X,Y] = prepareDataTrain([shot disrupted dataArr]);
+else            % regression - only train on disruped data
+    [X,Y] = prepareDataTrain([shot(disrupted) time_until_disrupt(disrupted) dataArr(disrupted,:)]);
+end
 disp('done splitting X and Y data');
 
 %% remove training data with constant values
@@ -99,6 +91,7 @@ idxConstant = M == m;
 for i = 1:numel(X)
     disp('removed a constant data value');
     X{i}(idxConstant,:) = [];
+    X{i}(isnan(X{i})) = 0;                % set all nans to zeros
 end
 
 %% normalize training predictors
@@ -139,6 +132,11 @@ YTrain = Y(trainInd);
 
 %%
 % save('cleanedData2','disrupted','featureNames','intentional_disruption','sequenceLengths','shot','time','time_until_disrupt','XTrain','YTrain');
-save('cleanedData2','XTest','YTest','XTrain','YTrain');
-
-disp('done');
+if classification
+    save('cleanedClassificationData','XTest','YTest','XTrain','YTrain');
+    disp('done getting classification data');
+else
+    save('cleanedRegressionData','XTest','YTest','XTrain','YTrain');
+    disp('done getting regression data');
+end
+   
